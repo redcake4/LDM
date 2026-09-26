@@ -1,4 +1,4 @@
-"""Strict, portable configuration for the four translation experiments."""
+"""Strict, portable configuration for the P2/P4/P8 translation experiments."""
 from copy import deepcopy
 from pathlib import Path
 import math
@@ -45,8 +45,8 @@ def validate_config(config):
     if config["task"] not in TASKS:
         raise ValueError("Only t1n_t1c and t2w_t2f translation tasks are supported")
     m, t, s, e, f = [config[k] for k in ("model", "training", "sampling", "evaluation", "flow")]
-    if m["patch_size"] not in (4, 8) or tuple(m["volume_size"]) != (48, 64, 64):
-        raise ValueError("Only latent P4/P8 on the MAISI 48x64x64 grid are supported")
+    if m["patch_size"] not in (2, 4, 8) or tuple(m["volume_size"]) != (48, 64, 64):
+        raise ValueError("Only latent P2/P4/P8 on the MAISI 48x64x64 grid are supported")
     for name in ("epochs", "batch_size", "eval_every", "save_best_k"):
         if not isinstance(t[name], int) or t[name] < 1:
             raise ValueError(f"training.{name} must be a positive integer")

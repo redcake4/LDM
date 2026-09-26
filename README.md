@@ -31,7 +31,7 @@ python -u precompute_latents.py --task t1n_t1c --device cuda --resume
 ```
 
 Precompute the complete latent cache before training; the training script does not create it automatically.
-Caches are stored under `data/latents/maisi_v1/`, separately for each task and shared by its P4/P8 configurations.
+Caches are stored under `data/latents/maisi_v1/`, separately for each task and shared by its P2/P4/P8 configurations.
 Use `--task t2w_t2f` to prepare T2 data. For datasets stored outside the package, specify the same
 `--h5-path` during data preparation, training, prediction export, and evaluation.
 
@@ -41,9 +41,19 @@ Use `--task t2w_t2f` to prepare T2 data. For datasets stored outside the package
 python -u train.py --config configs/t1n_t1c_p4.yaml --device cuda
 ```
 
-Select the T1/T2 and P4/P8 YAML configuration in [configs](configs); all use d1 with MDSA enabled.
+Select the T1/T2 and P2/P4/P8 YAML configuration in [configs](configs); all use d1 with MDSA enabled.
 Results are saved under `outputs/`; repeating the same command resumes training from `checkpoints/last.pt`.
-Use a new output directory when changing settings. Legacy voxel-space, P2, or d124 weights are incompatible.
+Use a new output directory when changing settings. Legacy voxel-space or d124 weights, and checkpoints from
+other patch sizes, are incompatible. Historical P2 checkpoints must also match this package's model contract.
+
+For P2, use `--config configs/t1n_t1c_p2.yaml` or `--config configs/t2w_t2f_p2.yaml` in the training command.
+P2 divides the 48x64x64 latent into 24x32x32 tokens (24,576 total), eight times as many as P4, so it requires
+more memory and computation. These configurations retain this release's d1 local branch and MDSA settings
+(rank 8, blocks 4 and 5 with zero-based indexing); changing the patch size alone does not reproduce all paper settings.
+The run directory uses `latent-p2` in place of `latent-p4` in the export example below.
+P2 runtime and real-MAISI synthetic workflow checks passed; see [validation details](docs/p2_validation.json).
+Recheck with `python scripts/smoke_cuda.py --patches 2` or `python scripts/smoke_pipeline.py --patch 2`
+(the latter requires the pinned MAISI checkpoint). These checks do not measure full-dataset quality or convergence.
 
 ## Evaluation
 

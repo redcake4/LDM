@@ -45,8 +45,8 @@ class LDMModel3D(nn.Module):
                  inner_lr=1.0, proj_drop=0.0, mdsa_mode="conditioned", mdsa_window=(2, 4, 4),
                  mdsa_rank=8, mdsa_blocks=(4, 5), mdsa_gate_hidden=32):
         super().__init__()
-        if patch_size not in (4, 8):
-            raise ValueError("LDM supports latent patch sizes 4 and 8 only")
+        if patch_size not in (2, 4, 8):
+            raise ValueError("LDM supports latent patch sizes 2, 4 and 8 only")
         if hidden_size < 6 or hidden_size % 2 or depth <= 0:
             raise ValueError("LDM requires an even hidden size >= 6 and positive depth")
         if any(v <= 0 or v % patch_size for v in volume_size):

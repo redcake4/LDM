@@ -162,7 +162,7 @@ def main():
     parser = argparse.ArgumentParser(description="Train standalone latent LDM, d=1, on paired H5 translation data")
     parser.add_argument("--config")
     parser.add_argument("--task", choices=list(TASKS))
-    parser.add_argument("--patch", type=int, choices=[4, 8])
+    parser.add_argument("--patch", type=int, choices=[2, 4, 8])
     parser.add_argument("--h5-path")
     parser.add_argument("--latent-cache")
     parser.add_argument("--ae-checkpoint")

@@ -54,7 +54,7 @@ def audit_contracts():
     from ldm.data.latent_cache import CACHE_FORMAT
     records = []
     for task in ("t1n_t1c", "t2w_t2f"):
-        for patch in (4, 8):
+        for patch in (2, 4, 8):
             config = load_config(f"configs/{task}_p{patch}.yaml")
             model = LDMModel3D(**config["model"])
             keys = list(model.state_dict())

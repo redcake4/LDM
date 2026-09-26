@@ -20,6 +20,8 @@ def main():
     parser.add_argument("--amp-dtype", choices=["auto", "float16", "bfloat16", "float32"], default="auto")
     parser.add_argument("--updates", type=int, default=3, help="At least three steps to exercise the initially zero-gated backbone")
     parser.add_argument("--output", default="artifacts/cuda_smoke.json")
+    parser.add_argument("--patches", type=int, nargs="+", choices=[2, 4, 8], default=[2, 4, 8],
+                        help="Latent patch sizes to check; P2 uses 24,576 tokens")
     args = parser.parse_args()
     if args.updates < 3:
         parser.error("--updates must be at least 3 to exercise the initially zero-gated backbone")
@@ -29,7 +31,7 @@ def main():
     dtype = amp_dtype(args.amp_dtype, device)
     report = {"device": torch.cuda.get_device_name(), "torch": str(torch.__version__),
               "amp_dtype": str(dtype), "synthetic_data_only": True, "model_checks": []}
-    for patch in (4, 8):
+    for patch in args.patches:
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
         torch.manual_seed(0)

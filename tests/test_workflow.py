@@ -14,7 +14,8 @@ from ldm.evaluation.metrics import evaluate
 from conftest import FakeAE
 
 
-@pytest.mark.parametrize("task,patch", [("t1n_t1c", 4), ("t1n_t1c", 8), ("t2w_t2f", 4), ("t2w_t2f", 8)])
+@pytest.mark.parametrize("task", ["t1n_t1c", "t2w_t2f"])
+@pytest.mark.parametrize("patch", [2, 4, 8])
 def test_train_resume_export_evaluate(paired_h5, tmp_path, monkeypatch, task, patch):
     module = importlib.import_module("ldm.train")
     exporter = importlib.import_module("ldm.export")

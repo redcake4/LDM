@@ -12,7 +12,7 @@ def tiny_model(patch=4):
                      mdsa_blocks=(0, 1), mdsa_rank=4)
 
 
-@pytest.mark.parametrize("patch", [4, 8])
+@pytest.mark.parametrize("patch", [2, 4, 8])
 def test_model_backward_and_single_scale(patch):
     model = tiny_model(patch)
     assert sum(block.mdsa is not None for block in model.blocks) == 2
@@ -25,13 +25,14 @@ def test_model_backward_and_single_scale(patch):
     assert result.shape == (1, 4, 8, 16, 16)
     result.square().mean().backward()
     assert torch.isfinite(x.grad).all()
+    assert x.grad.abs().sum() > 0
     for block in model.blocks:
         for weight in (block.mixer.w1, block.mixer.w2, block.mixer.w3):
             assert weight.grad is not None and torch.isfinite(weight.grad).all()
             assert weight.grad.abs().sum() > 0
 
 
-@pytest.mark.parametrize("patch", [2, 16])
+@pytest.mark.parametrize("patch", [1, 16])
 def test_patch_restriction(patch):
     with pytest.raises(ValueError, match="patch sizes"):
         tiny_model(patch)
@@ -66,7 +67,7 @@ def test_clean_prediction_loss_and_sampler():
 
 
 @pytest.mark.parametrize("task", ["t1n_t1c", "t2w_t2f"])
-@pytest.mark.parametrize("patch,tokens", [(4, 3072), (8, 384)])
+@pytest.mark.parametrize("patch,tokens", [(2, 24576), (4, 3072), (8, 384)])
 def test_release_configs(task, patch, tokens):
     cfg = load_config(ROOT / f"configs/{task}_p{patch}.yaml")
     model = LDMModel3D(**cfg["model"])

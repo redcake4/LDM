@@ -19,7 +19,7 @@ def parent(monkeypatch):
     return importlib.import_module("common.backbone")
 
 
-@pytest.mark.parametrize("patch", [4, 8])
+@pytest.mark.parametrize("patch", [2, 4, 8])
 @pytest.mark.parametrize("mdsa_mode", ["off", "conditioned"])
 def test_parent_model_forward_and_gradients(parent, patch, mdsa_mode):
     kwargs = dict(volume_size=(8, 16, 16), patch_size=patch, hidden_size=24, depth=2,
@@ -50,7 +50,8 @@ def test_parent_model_forward_and_gradients(parent, patch, mdsa_mode):
             torch.testing.assert_close(param.grad, other.grad, atol=1e-7, rtol=1e-4)
 
 
-def test_parent_flow_sampler(parent):
+@pytest.mark.parametrize("patch", [2, 4, 8])
+def test_parent_flow_sampler(parent, patch):
     base = importlib.import_module("common.flow").FlowDenoiser
 
     class Reference(base):
@@ -64,7 +65,7 @@ def test_parent_flow_sampler(parent):
         def _net_predict(self, z, t, batch, return_pre_refiner=False):
             return self.net(torch.cat((z, batch["condition"]), 1), t.flatten())
 
-    model = LDMModel3D(patch_size=4, volume_size=(8, 16, 16), hidden_size=24, depth=2,
+    model = LDMModel3D(patch_size=patch, volume_size=(8, 16, 16), hidden_size=24, depth=2,
                       global_heads=4, local_dim=6, bottleneck_dim=8, mdsa_blocks=(0, 1), mdsa_rank=4)
     torch.nn.init.normal_(model.final_layer.linear.weight, std=0.02)
     source = torch.randn(1, 4, 8, 16, 16)

@@ -1,6 +1,6 @@
 param(
     [ValidateSet('t1n_t1c', 't2w_t2f')][string]$Task = 't1n_t1c',
-    [ValidateSet(4, 8)][int]$Patch = 4
+    [ValidateSet(2, 4, 8)][int]$Patch = 4
 )
 $ErrorActionPreference = 'Stop'
 Push-Location (Split-Path -Parent $PSScriptRoot)
