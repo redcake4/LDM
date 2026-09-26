@@ -1,0 +1,8 @@
+task: t1n_t1c
+seed: 0
+model:
+  patch_size: 8
+  mdsa_mode: conditioned
+  mdsa_blocks: [4, 5]
+  mdsa_window: [2, 4, 4]
+  mdsa_rank: 8
