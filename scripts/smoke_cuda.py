@@ -22,6 +22,8 @@ def main():
     parser.add_argument("--output", default="artifacts/cuda_smoke.json")
     parser.add_argument("--patches", type=int, nargs="+", choices=[2, 4, 8], default=[2, 4, 8],
                         help="Latent patch sizes to check; P2 uses 24,576 tokens")
+    parser.add_argument("--main-structure", action="store_true",
+                        help="Check the optional structure-based mixer combination (default off)")
     args = parser.parse_args()
     if args.updates < 3:
         parser.error("--updates must be at least 3 to exercise the initially zero-gated backbone")
@@ -30,12 +32,14 @@ def main():
     device = torch.device("cuda")
     dtype = amp_dtype(args.amp_dtype, device)
     report = {"device": torch.cuda.get_device_name(), "torch": str(torch.__version__),
-              "amp_dtype": str(dtype), "synthetic_data_only": True, "model_checks": []}
+              "amp_dtype": str(dtype), "synthetic_data_only": True,
+              "main_structure": args.main_structure, "model_checks": []}
     for patch in args.patches:
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
         torch.manual_seed(0)
-        model = LDMFlow(LDMModel3D(**load_config(patch=patch)["model"])).cuda()
+        config = load_config(patch=patch, main_structure=args.main_structure)
+        model = LDMFlow(LDMModel3D(**config["model"])).cuda()
         source = torch.randn(1, 4, 48, 64, 64, device="cuda")
         target = torch.randn_like(source)
         started = time.perf_counter()

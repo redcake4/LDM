@@ -16,7 +16,8 @@ from conftest import FakeAE
 
 @pytest.mark.parametrize("task", ["t1n_t1c", "t2w_t2f"])
 @pytest.mark.parametrize("patch", [2, 4, 8])
-def test_train_resume_export_evaluate(paired_h5, tmp_path, monkeypatch, task, patch):
+@pytest.mark.parametrize("main_structure", [False, True])
+def test_train_resume_export_evaluate(paired_h5, tmp_path, monkeypatch, task, patch, main_structure):
     module = importlib.import_module("ldm.train")
     exporter = importlib.import_module("ldm.export")
     monkeypatch.setattr(module, "FrozenMaisiAE", FakeAE)
@@ -26,7 +27,8 @@ def test_train_resume_export_evaluate(paired_h5, tmp_path, monkeypatch, task, pa
     config = deepcopy(DEFAULTS)
     config["task"] = task
     config["model"].update(patch_size=patch, hidden_size=24, depth=2, global_heads=4,
-                            local_dim=6, bottleneck_dim=8, mdsa_blocks=[0, 1], mdsa_rank=4)
+                            local_dim=6, bottleneck_dim=8, mdsa_blocks=[0, 1], mdsa_rank=4,
+                            main_structure=main_structure)
     config["training"].update(epochs=2, warmup_epochs=0, eval_every=1)
     config["sampling"].update(steps=2, visualizations=0)
     info = inspect_h5(paired_h5, task)
@@ -45,10 +47,23 @@ def test_train_resume_export_evaluate(paired_h5, tmp_path, monkeypatch, task, pa
         module.train(config, paired_h5, cache, "unused", output, torch.device("cpu"), torch.float32)
     first = checked_payload(output / "checkpoints/last.pt")
     assert first["next_epoch"] == 1
+    assert first["config"]["model"]["main_structure"] is main_structure
+    legacy_case = not main_structure and task == "t1n_t1c" and patch == 8
+    if legacy_case:
+        # Convert a real optimizer/RNG/model checkpoint to the original schema.
+        # Its tensors are unchanged because the default algorithm is unchanged.
+        first["config"]["model"].pop("main_structure")
+        first["model_contract"]["model"].pop("main_structure")
+        torch.save(first, output / "checkpoints/last.pt")
+    changed_config = deepcopy(config)
+    changed_config["model"]["main_structure"] = not main_structure
+    with pytest.raises(ValueError, match="identical resolved configuration"):
+        module.train(changed_config, paired_h5, cache, "unused", output, torch.device("cpu"), torch.float32)
     monkeypatch.setattr(module, "predict_split", original_predict)
     module.train(config, paired_h5, cache, "unused", output, torch.device("cpu"), torch.float32)
     completed = checked_payload(output / "checkpoints/last.pt")
     assert completed["next_epoch"] == 2
+    assert completed["model_contract"]["model"]["main_structure"] is main_structure
     assert len(completed["history"]) == 2
     assert all("autoencoder" not in key for key in completed["model"])
     assert select_checkpoint(output).is_file()
@@ -58,10 +73,18 @@ def test_train_resume_export_evaluate(paired_h5, tmp_path, monkeypatch, task, pa
         direct = checked_payload(uninterrupted / "checkpoints/last.pt")
         for name, value in completed["model"].items():
             torch.testing.assert_close(value, direct["model"][name], atol=0, rtol=0)
+    if legacy_case:
+        best_path = select_checkpoint(output)
+        legacy_best = checked_payload(best_path)
+        legacy_best["config"]["model"].pop("main_structure")
+        legacy_best["model_contract"]["model"].pop("main_structure")
+        torch.save(legacy_best, best_path)
     export = tmp_path / "export"
     monkeypatch.setattr(sys, "argv", ["export_predictions.py", "--run-dir", str(output),
         "--h5-path", str(paired_h5), "--latent-cache", str(cache), "--output-dir", str(export), "--device", "cpu"])
     exporter.main()
+    exported_contract = json.loads((export / "inference_summary.json").read_text())["model_contract"]
+    assert exported_contract["model"]["main_structure"] is main_structure
     prediction_path = export / "predictions_test.h5"
     summary = evaluate(paired_h5, prediction_path, export / "metrics", task)
     assert summary["subjects"] == 1

@@ -8,8 +8,14 @@ from .mixer import LDMGlobalLocalMixer
 
 class LDMBlock3D(nn.Module):
     def __init__(self, hidden_size, global_heads, local_dim, inner_lr, mlp_ratio,
-                 proj_drop, mdsa_mode, mdsa_window, mdsa_rank, mdsa_gate_hidden):
+                 proj_drop, mdsa_mode, mdsa_window, mdsa_rank, mdsa_gate_hidden,
+                 main_structure=False):
         super().__init__()
+        if type(main_structure) is not bool:
+            raise ValueError("main_structure must be a boolean")
+        if main_structure and mdsa_mode not in {"conditioned", "strict"}:
+            raise ValueError("main_structure requires conditioned or strict MDSA")
+        self.main_structure = main_structure
         self.norm1 = RMSNorm(hidden_size)
         self.mixer = LDMGlobalLocalMixer(hidden_size, global_heads, local_dim, inner_lr)
         self.norm2 = RMSNorm(hidden_size)
@@ -21,9 +27,13 @@ class LDMBlock3D(nn.Module):
     def forward(self, x, timestep_condition, grid_size):
         shift_mixer, scale_mixer, gate_mixer, shift_ffn, scale_ffn, gate_ffn = self.adaLN_modulation(timestep_condition).chunk(6, -1)
         features = modulate(self.norm1(x), shift_mixer, scale_mixer)
-        streams = (None,) * 4 if self.mdsa is None else self.mdsa(features, timestep_condition, grid_size)
+        if self.main_structure:
+            *streams, shortcut = self.mdsa(features, timestep_condition, grid_size, reference=x)
+        else:
+            streams = (None,) * 4 if self.mdsa is None else self.mdsa(features, timestep_condition, grid_size)
+            shortcut = x
         mixed = self.mixer(features, grid_size, *streams)
-        x = x + gate_mixer.unsqueeze(1) * mixed
+        x = shortcut + gate_mixer.unsqueeze(1) * mixed
         return x + gate_ffn.unsqueeze(1) * self.mlp(modulate(self.norm2(x), shift_ffn, scale_ffn))
 
 
@@ -43,8 +53,12 @@ class LDMModel3D(nn.Module):
     def __init__(self, patch_size=4, volume_size=(48, 64, 64), hidden_size=512, depth=10,
                  global_heads=8, local_dim=64, bottleneck_dim=96, mlp_ratio=4.0,
                  inner_lr=1.0, proj_drop=0.0, mdsa_mode="conditioned", mdsa_window=(2, 4, 4),
-                 mdsa_rank=8, mdsa_blocks=(4, 5), mdsa_gate_hidden=32):
+                 mdsa_rank=8, mdsa_blocks=(4, 5), mdsa_gate_hidden=32, main_structure=False):
         super().__init__()
+        if type(main_structure) is not bool:
+            raise ValueError("main_structure must be a boolean")
+        if main_structure and mdsa_mode not in {"conditioned", "strict"}:
+            raise ValueError("main_structure requires conditioned or strict MDSA")
         if patch_size not in (2, 4, 8):
             raise ValueError("LDM supports latent patch sizes 2, 4 and 8 only")
         if hidden_size < 6 or hidden_size % 2 or depth <= 0:
@@ -59,12 +73,14 @@ class LDMModel3D(nn.Module):
             raise ValueError("Enabled MDSA requires at least one active block")
         self.volume_size, self.patch_size = tuple(volume_size), patch_size
         self.hidden_size = hidden_size
+        self.main_structure = main_structure
         self.x_embedder = BottleneckPatchEmbed3D(volume_size, patch_size, 8, bottleneck_dim, hidden_size)
         self.t_embedder = TimestepEmbedder(hidden_size)
         self.pos_embed = nn.Parameter(torch.zeros(1, self.x_embedder.num_patches, hidden_size), requires_grad=False)
         self.blocks = nn.ModuleList([LDMBlock3D(hidden_size, global_heads, local_dim, inner_lr,
             mlp_ratio, proj_drop if depth // 4 <= i < depth // 4 * 3 else 0.0,
-            mdsa_mode if i in mdsa_blocks else "off", mdsa_window, mdsa_rank, mdsa_gate_hidden) for i in range(depth)])
+            mdsa_mode if i in mdsa_blocks else "off", mdsa_window, mdsa_rank, mdsa_gate_hidden,
+            main_structure=main_structure and i in mdsa_blocks) for i in range(depth)])
         self.final_layer = LDMOutputHead(hidden_size, patch_size)
         self.initialize_weights()
 

@@ -1,0 +1,88 @@
+{
+  "date": "2026-09-27",
+  "scope": "Optional structural shortcut within the existing translation implementation",
+  "implementation": {
+    "flag": "--main-structure",
+    "default": false,
+    "disabled_update": "Y = X + alpha * M",
+    "enabled_update": "Y = P_H X + alpha * M",
+    "projector": "Same detached eigenspace estimated from normalized/modulated H, reused for branch decomposition and the raw-X shortcut",
+    "active_blocks_zero_based": [4, 5],
+    "rank": 8,
+    "window": [2, 4, 4],
+    "local_dilation": 1,
+    "added_trainable_parameters": 0,
+    "zero_gate_behavior": "Enabled blocks project X; the default identity shortcut is intentionally not retained",
+    "paper_alignment": "Adaptation of the structural-shortcut idea, not a literal full implementation of every manuscript equation and setting"
+  },
+  "environment": {
+    "os": "Windows",
+    "python": "3.10.20",
+    "torch": "2.5.1+cu124",
+    "monai": "1.5.2",
+    "gpu": "NVIDIA GeForce RTX 3080",
+    "full_model_amp_dtype": "bfloat16"
+  },
+  "runtime_tests": {
+    "cpu_passed": 92,
+    "cuda_mixed_precision_passed": 6,
+    "cuda_modes": [false, true],
+    "cuda_dtypes": ["float32", "float16", "bfloat16"],
+    "structural_semantics_config_checkpoint_tests_passed": 46,
+    "train_resume_export_evaluate_workflows_passed": 12,
+    "workflow_matrix": "Two tasks x P2/P4/P8 x main_structure false/true",
+    "workflow_fixture": "Small-width model, full latent grid, IO-only fake AE",
+    "default_parent_parity_tests_executed": 9,
+    "checks": [
+      "Independent per-window projection oracle, including padding and gradient boundaries",
+      "Same eigenspace reused without a second eigendecomposition",
+      "Default parameter values, RNG consumption and outputs unchanged",
+      "Only configured MDSA blocks change",
+      "YAML and CLI precedence, explicit disabling, boolean validation",
+      "Mode-specific run names, persisted contracts, cross-mode resume rejection",
+      "Original-schema checkpoint migration, real optimizer/RNG resume and best-EMA export",
+      "Resumed P8 training matches uninterrupted training in both modes",
+      "Prediction remains independent of held-out target and mask changes"
+    ]
+  },
+  "full_model_cuda_smoke": {
+    "command": "python scripts/smoke_cuda.py --patches 2 4 8 --main-structure --output artifacts/main_structure_cuda.json",
+    "status": "passed",
+    "synthetic_data_only": true,
+    "main_structure": true,
+    "optimizer_updates_per_patch": 3,
+    "finite_loss_and_gradients": true,
+    "patch_results": [
+      {"patch": 2, "tokens": 24576, "mixers_with_nonzero_gradients": 10, "peak_cuda_allocated_bytes": 12400844800},
+      {"patch": 4, "tokens": 3072, "mixers_with_nonzero_gradients": 10, "peak_cuda_allocated_bytes": 2228852224},
+      {"patch": 8, "tokens": 384, "mixers_with_nonzero_gradients": 10, "peak_cuda_allocated_bytes": 1089724928}
+    ]
+  },
+  "real_maisi_synthetic_pipeline": {
+    "command": "python scripts/smoke_pipeline.py --patch 2 --main-structure --output-dir artifacts/main_structure_pipeline",
+    "status": "passed",
+    "task": "t1n_t1c",
+    "main_structure": true,
+    "real_pinned_ae": true,
+    "full_release_model": true,
+    "training_epochs": 1,
+    "sampling_steps": 2,
+    "sampling_solver": "heun",
+    "subjects_per_split": 1,
+    "checks": ["precompute", "train", "validation", "best_ema_reload", "prediction_export", "metrics"],
+    "exported_prediction_shape": [1, 1, 155, 256, 256]
+  },
+  "documentation_tests": {
+    "passed": 3,
+    "existing_failures": 5,
+    "reasons": ["Missing historical image provenance manifests", "Legacy README layout assertions"],
+    "note": "These pre-existing documentation failures remain visible. The new validation link was checked after this report was created."
+  },
+  "limitations": [
+    "No full-dataset convergence, comparative quality improvement or paper-result reproduction has been established.",
+    "The flag changes only the shortcut in active MDSA blocks, not the condition/feature joint Gram projector, all-block placement, rank, d124 operators or training/sampling settings.",
+    "Learned branch outputs are not constrained to remain in the input subspaces.",
+    "The existing qualitative images are not results of this new mode.",
+    "Measured CUDA allocations exceed physical VRAM on this Windows host; this is not a guarantee of fitting in 10 GiB on another system."
+  ]
+}

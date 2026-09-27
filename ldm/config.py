@@ -11,7 +11,8 @@ DEFAULTS = {
     "model": {"patch_size": 4, "volume_size": [48, 64, 64], "hidden_size": 512, "depth": 10,
               "global_heads": 8, "local_dim": 64, "bottleneck_dim": 96, "mlp_ratio": 4.0,
               "inner_lr": 1.0, "proj_drop": 0.0, "mdsa_mode": "conditioned", "mdsa_window": [2, 4, 4],
-              "mdsa_rank": 8, "mdsa_blocks": [4, 5], "mdsa_gate_hidden": 32},
+              "mdsa_rank": 8, "mdsa_blocks": [4, 5], "mdsa_gate_hidden": 32,
+              "main_structure": False},
     "flow": {"time_mean": -0.8, "time_std": 0.8, "time_epsilon": 0.05, "noise_scale": 1.0},
     "training": {"epochs": 600, "batch_size": 1, "num_workers": 0, "lr": 3e-5,
                  "weight_decay": 0.0, "warmup_epochs": 2, "min_lr": 0.0,
@@ -41,12 +42,24 @@ def _merge(base, values, prefix=""):
             base[key] = value
 
 
+def normalize_config(config):
+    """Resolve the optional structure flag without changing legacy input dictionaries."""
+    config = deepcopy(config)
+    config["model"].setdefault("main_structure", False)
+    if type(config["model"]["main_structure"]) is not bool:
+        raise ValueError("model.main_structure must be a boolean")
+    return config
+
+
 def validate_config(config):
+    config = normalize_config(config)
     if config["task"] not in TASKS:
         raise ValueError("Only t1n_t1c and t2w_t2f translation tasks are supported")
     m, t, s, e, f = [config[k] for k in ("model", "training", "sampling", "evaluation", "flow")]
     if m["patch_size"] not in (2, 4, 8) or tuple(m["volume_size"]) != (48, 64, 64):
         raise ValueError("Only latent P2/P4/P8 on the MAISI 48x64x64 grid are supported")
+    if m["main_structure"] and (m["mdsa_mode"] not in {"conditioned", "strict"} or not m["mdsa_blocks"]):
+        raise ValueError("main_structure requires mdsa_mode 'conditioned' or 'strict' and nonempty mdsa_blocks")
     for name in ("epochs", "batch_size", "eval_every", "save_best_k"):
         if not isinstance(t[name], int) or t[name] < 1:
             raise ValueError(f"training.{name} must be a positive integer")
@@ -66,7 +79,7 @@ def validate_config(config):
     return config
 
 
-def load_config(path=None, task=None, patch=None):
+def load_config(path=None, task=None, patch=None, main_structure=None):
     config = deepcopy(DEFAULTS)
     if path:
         with resolve_path(path).open(encoding="utf-8") as handle:
@@ -75,6 +88,8 @@ def load_config(path=None, task=None, patch=None):
         config["task"] = task
     if patch is not None:
         config["model"]["patch_size"] = patch
+    if main_structure is not None:
+        config["model"]["main_structure"] = main_structure
     return validate_config(config)
 
 
@@ -84,10 +99,13 @@ def dataset_path(config, override=None):
 
 
 def run_name(config):
-    return f"{config['task']}__ldm__latent-p{config['model']['patch_size']}__d1__mdsa-{config['model']['mdsa_mode']}__seed{config['seed']}"
+    config = normalize_config(config)
+    name = f"{config['task']}__ldm__latent-p{config['model']['patch_size']}__d1__mdsa-{config['model']['mdsa_mode']}__seed{config['seed']}"
+    return name + ("__main-structure" if config["model"]["main_structure"] else "")
 
 
 def model_contract(config):
+    config = normalize_config(config)
     return {"format": "ldm_latent_d1_v1", "task": config["task"], "model": config["model"],
             "flow": config["flow"], "local_dilation": 1, "local_kernel": [3, 3, 3],
             "post_fusion": "off", "conditioning": "adaln", "output_head": "linear"}

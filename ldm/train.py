@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from .autoencoder import FrozenMaisiAE
 from .checkpoint import checked_payload
-from .config import TASKS, load_config, validate_config, dataset_path, resolve_path, run_name, model_contract
+from .config import TASKS, load_config, normalize_config, dataset_path, resolve_path, run_name, model_contract
 from .data.h5_dataset import inspect_h5
 from .data.latent_cache import cache_path, cache_contract, validate_cache, CachedLatentDataset
 from .flow import LDMFlow
@@ -36,6 +36,7 @@ def update_ema(ema, model, decay):
 
 
 def train(config, h5_path, latent_path, ae_path, output, device, dtype, auto_resume=True):
+    config = normalize_config(config)
     output = Path(output)
     print(f"Validating and fingerprinting {h5_path}", flush=True)
     info = inspect_h5(h5_path, config["task"])
@@ -163,6 +164,8 @@ def main():
     parser.add_argument("--config")
     parser.add_argument("--task", choices=list(TASKS))
     parser.add_argument("--patch", type=int, choices=[2, 4, 8])
+    parser.add_argument("--main-structure", action=argparse.BooleanOptionalAction, default=None,
+                        help="Enable the structure-based mixer combination; omitted keeps the config setting (default off)")
     parser.add_argument("--h5-path")
     parser.add_argument("--latent-cache")
     parser.add_argument("--ae-checkpoint")
@@ -172,7 +175,7 @@ def main():
     parser.add_argument("--auto-resume", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--dry-run", action="store_true", help="Resolve config/build model only; no data/AE required")
     args = parser.parse_args()
-    config = load_config(args.config, args.task, args.patch)
+    config = load_config(args.config, args.task, args.patch, main_structure=args.main_structure)
     device = device_for(args.device)
     dtype = amp_dtype(args.amp_dtype, device)
     if args.dry_run:

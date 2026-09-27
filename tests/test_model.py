@@ -6,10 +6,10 @@ from ldm.flow import LDMFlow, nfe
 from ldm.config import load_config, ROOT
 
 
-def tiny_model(patch=4):
+def tiny_model(patch=4, main_structure=False):
     return LDMModel3D(patch_size=patch, volume_size=(8, 16, 16), hidden_size=24,
                      depth=2, global_heads=4, local_dim=6, bottleneck_dim=8,
-                     mdsa_blocks=(0, 1), mdsa_rank=4)
+                     mdsa_blocks=(0, 1), mdsa_rank=4, main_structure=main_structure)
 
 
 @pytest.mark.parametrize("patch", [2, 4, 8])
@@ -77,10 +77,11 @@ def test_release_configs(task, patch, tokens):
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
-def test_cuda_mixed_precision(dtype):
+@pytest.mark.parametrize("main_structure", [False, True])
+def test_cuda_mixed_precision(dtype, main_structure):
     if dtype == torch.bfloat16 and not torch.cuda.is_bf16_supported():
         pytest.skip("BF16 unsupported")
-    model = tiny_model().cuda()
+    model = tiny_model(main_structure=main_structure).cuda()
     torch.nn.init.normal_(model.final_layer.linear.weight, std=0.01)
     for block in model.blocks:
         torch.nn.init.normal_(block.adaLN_modulation[-1].weight, std=0.01)

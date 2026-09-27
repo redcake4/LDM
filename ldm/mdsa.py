@@ -98,7 +98,15 @@ class MDSA3D(nn.Module):
         )
         return grid[:, :depth, :height, :width].reshape(batch, depth * height * width, channels)
 
-    def decompose(self, x, grid_size):
+    def decompose(self, x, grid_size, reference=None):
+        """Split x; optionally project a reference using exactly the same basis.
+
+        The optional third result is P_x @ reference, not P_reference @ reference.
+        This keeps the structural shortcut in the residual stream's coordinates
+        while the mixer branches use normalized/modulated features.
+        """
+        if reference is not None and (reference.shape != x.shape or reference.device != x.device):
+            raise ValueError("MDSA reference must match the feature shape and device")
         batch = x.shape[0]
         windows, padded_size = self._partition(x, grid_size)
         device_type = x.device.type
@@ -116,6 +124,11 @@ class MDSA3D(nn.Module):
             coefficients = torch.matmul(basis.transpose(-2, -1), work)
             structure_windows = torch.matmul(basis, coefficients)
             residual_windows = work - structure_windows
+            if reference is not None:
+                reference_windows, _ = self._partition(reference, grid_size)
+                reference_structure = torch.matmul(
+                    basis, torch.matmul(basis.transpose(-2, -1), reference_windows.float())
+                )
 
         structure = self._reverse(
             structure_windows.to(dtype=x.dtype), batch, grid_size, padded_size
@@ -123,7 +136,12 @@ class MDSA3D(nn.Module):
         residual = self._reverse(
             residual_windows.to(dtype=x.dtype), batch, grid_size, padded_size
         )
-        return structure, residual
+        if reference is None:
+            return structure, residual
+        shortcut = self._reverse(
+            reference_structure.to(dtype=reference.dtype), batch, grid_size, padded_size
+        )
+        return structure, residual, shortcut
 
     def _gates(self, context, structure, residual, timestep_condition):
         structure_energy = structure.float().square().mean(dim=-1, keepdim=True)
@@ -138,12 +156,16 @@ class MDSA3D(nn.Module):
         gates = 2.0 * torch.sigmoid(self.gate_out(F.silu(hidden)))
         return gates[..., :1], gates[..., 1:]
 
-    def forward(self, x, timestep_condition, grid_size):
+    def forward(self, x, timestep_condition, grid_size, reference=None):
+        """Return branch inputs/gates and, if requested, a structural shortcut."""
         if self.mode == "gate_only":
+            if reference is not None:
+                raise ValueError("A structural shortcut requires MDSA decomposition")
             structure = x
             residual = x
         else:
-            structure, residual = self.decompose(x, grid_size)
+            decomposition = self.decompose(x, grid_size, reference=reference)
+            structure, residual = decomposition[:2]
 
         if self.mode == "strict":
             global_gate = None
@@ -152,4 +174,5 @@ class MDSA3D(nn.Module):
             global_gate, local_gate = self._gates(
                 structure, structure, residual, timestep_condition
             )
-        return structure, residual, global_gate, local_gate
+        streams = (structure, residual, global_gate, local_gate)
+        return streams if reference is None else (*streams, decomposition[2])

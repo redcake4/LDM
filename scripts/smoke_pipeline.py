@@ -26,6 +26,8 @@ def main():
     parser.add_argument("--ae-checkpoint", default="ae_assets/maisi_v1/autoencoder_v1.pt")
     parser.add_argument("--output-dir", default="artifacts/real_ae_pipeline")
     parser.add_argument("--patch", type=int, choices=[2, 4, 8], default=4)
+    parser.add_argument("--main-structure", action="store_true",
+                        help="Check the optional structure-based mixer combination (default off)")
     args = parser.parse_args()
     if not torch.cuda.is_available():
         raise RuntimeError("This full-volume smoke test requires CUDA")
@@ -56,7 +58,7 @@ def main():
     ae.cpu()
     del ae
     torch.cuda.empty_cache()
-    config = load_config(patch=args.patch)
+    config = load_config(patch=args.patch, main_structure=args.main_structure)
     config["training"].update(epochs=1, warmup_epochs=0, eval_every=1)
     config["sampling"].update(steps=2, visualizations=1)
     run = output / "run"
@@ -76,6 +78,7 @@ def main():
         assert f["prediction"].shape == (1, 1, 155, 256, 256)
     write_json(output / "smoke_report.json", {"status": "passed", "synthetic_data_only": True,
         "real_pinned_ae": True, "model_patch": args.patch, "training_epochs": 1, "sampling_steps": 2,
+        "main_structure": config["model"]["main_structure"],
         "original_prediction_shape": [1, 1, 155, 256, 256], "test_subjects": metrics["subjects"],
         "inference": inference, "note": "No clinical image-quality or convergence claim"})
     print(f"Real-AE synthetic workflow passed: {output}")

@@ -2,6 +2,7 @@ task: t2w_t2f
 seed: 0
 model:
   patch_size: 8
+  main_structure: false
   mdsa_mode: conditioned
   mdsa_blocks: [4, 5]
   mdsa_window: [2, 4, 4]
