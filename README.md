@@ -1,5 +1,7 @@
 # Latent Space Is Not Flat: Rethinking Latent Structure for 3D Medical Image Synthesis
 
+[Paper](https://arxiv.org/abs/2609.32794) · Submitted to ICASSP 2027.
+
 ![Manuscript framework](assets/framework.png)
 
 ## Setup
