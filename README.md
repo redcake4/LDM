@@ -1,5 +1,7 @@
 # Latent Space Is Not Flat: Rethinking Latent Structure for 3D Medical Image Synthesis
 
+![Manuscript framework](assets/framework.png)
+
 ## Setup
 
 Use Python 3.10+ and CUDA-enabled PyTorch 2.5+. Run all commands from the repository root.
@@ -58,3 +60,9 @@ training, export, and evaluation.
 [BraTS](https://www.synapse.org/Synapse:syn51156910),
 [NVIDIA MAISI](https://github.com/NVIDIA-Medtech/NV-Generate-CTMR),
 and [MONAI](https://github.com/Project-MONAI/MONAI).
+
+<table>
+<tr><td width="33%"><a href="assets/qualitative/case_01.png"><img src="assets/qualitative/case_01.png" alt="Historical visualization" width="100%" /></a></td><td width="33%"><a href="assets/qualitative/case_02.png"><img src="assets/qualitative/case_02.png" alt="Historical visualization" width="100%" /></a></td><td width="34%"><a href="assets/qualitative/case_03.png"><img src="assets/qualitative/case_03.png" alt="Historical visualization" width="100%" /></a></td></tr>
+<tr><td width="33%"><a href="assets/qualitative/case_04.png"><img src="assets/qualitative/case_04.png" alt="Historical visualization" width="100%" /></a></td><td width="33%"><a href="assets/qualitative/case_05.png"><img src="assets/qualitative/case_05.png" alt="Historical visualization" width="100%" /></a></td><td width="34%"><a href="assets/qualitative/case_06.png"><img src="assets/qualitative/case_06.png" alt="Historical visualization" width="100%" /></a></td></tr>
+<tr><td width="33%"><a href="assets/qualitative/case_07.png"><img src="assets/qualitative/case_07.png" alt="Historical visualization" width="100%" /></a></td><td width="33%"><a href="assets/qualitative/case_08.png"><img src="assets/qualitative/case_08.png" alt="Historical visualization" width="100%" /></a></td><td width="34%"><a href="assets/qualitative/case_09.png"><img src="assets/qualitative/case_09.png" alt="Historical visualization" width="100%" /></a></td></tr>
+</table>
