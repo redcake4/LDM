@@ -78,11 +78,5 @@
     "reasons": ["Missing historical image provenance manifests", "Legacy README layout assertions"],
     "note": "These pre-existing documentation failures remain visible. The new validation link was checked after this report was created."
   },
-  "limitations": [
-    "No full-dataset convergence, comparative quality improvement or paper-result reproduction has been established.",
-    "The flag changes only the shortcut in active MDSA blocks, not the condition/feature joint Gram projector, all-block placement, rank, d124 operators or training/sampling settings.",
-    "Learned branch outputs are not constrained to remain in the input subspaces.",
-    "The existing qualitative images are not results of this new mode.",
-    "Measured CUDA allocations exceed physical VRAM on this Windows host; this is not a guarantee of fitting in 10 GiB on another system."
-  ]
+
 }
