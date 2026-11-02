@@ -1,0 +1,29 @@
+# Latent Structure Flow as reported in arXiv:2609.32794v1, Section 3 "Implementation".
+#
+# This configuration matches every paper setting that the code can now express.
+# The model it builds still has 56M parameters against the 62.9M reported in the
+# paper; see docs/paper_alignment.md and scripts/param_audit.py. Until that gap is
+# explained, a run from this file is not a reproduction of the paper.
+task: t2w_t2f
+seed: 0
+model:
+  patch_size: 2            # paper: p = 2, giving a 24x32x32 token grid
+  main_structure: true     # paper: Eq. (5) structural shortcut is the core method
+  mdsa_mode: conditioned
+  mdsa_blocks: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]   # paper: "the split is applied in every block"
+  mdsa_window: [2, 4, 4]   # paper: windows hold 2x4x4 = 32 tokens
+  mdsa_rank: 2             # paper: r = 2 (Fig. 3)
+  mdsa_basis: joint        # paper Eq. (3): U_w = eig_r(gamma(C_w) + gamma(H_w))
+  local_dilations: [1, 2, 4]   # paper: depthwise kernel applied at {1,2,4} and averaged
+  post_fusion_norm: true       # paper: fused output normalized by a time-modulated RMSNorm
+training:
+  epochs: 80               # paper: 80 epochs
+  warmup_epochs: 2         # paper: 2 warm-up epochs
+  lr: 3.0e-5               # paper: 3e-5
+  min_lr: 3.0e-5           # equal to lr, which makes the schedule constant after warm-up
+  weight_decay: 0.0        # paper: no weight decay
+  ema_decay: 0.9999        # paper: EMA 0.9999
+  batch_size: 1            # paper: one volume per batch
+sampling:
+  solver: euler            # paper: Euler solver
+  steps: 50                # paper: 50 steps

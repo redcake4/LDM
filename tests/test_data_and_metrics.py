@@ -85,7 +85,9 @@ def test_paths_anchor_and_unknown_options(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert resolve_path("data/h5/test.h5") == ROOT / "data/h5/test.h5"
     cfg = tmp_path / "bad.yaml"
-    cfg.write_text("model:\n  local_dilations: [1, 2, 4]\n", encoding="utf-8")
+    # local_dilations used to stand in for an unsupported field here; it is now a
+    # real option, so this needs a key that genuinely does not exist.
+    cfg.write_text("model:\n  no_such_option: 1\n", encoding="utf-8")
     with pytest.raises(ValueError, match="Unknown config"):
         load_config(cfg)
 

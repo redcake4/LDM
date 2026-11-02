@@ -12,7 +12,8 @@ DEFAULTS = {
               "global_heads": 8, "local_dim": 64, "bottleneck_dim": 96, "mlp_ratio": 4.0,
               "inner_lr": 1.0, "proj_drop": 0.0, "mdsa_mode": "conditioned", "mdsa_window": [2, 4, 4],
               "mdsa_rank": 8, "mdsa_blocks": [4, 5], "mdsa_gate_hidden": 32,
-              "main_structure": False},
+              "main_structure": False, "mdsa_basis": "state",
+              "local_dilations": [1], "post_fusion_norm": False},
     "flow": {"time_mean": -0.8, "time_std": 0.8, "time_epsilon": 0.05, "noise_scale": 1.0},
     "training": {"epochs": 600, "batch_size": 1, "num_workers": 0, "lr": 3e-5,
                  "weight_decay": 0.0, "warmup_epochs": 2, "min_lr": 0.0,
@@ -46,8 +47,13 @@ def normalize_config(config):
     """Resolve the optional structure flag without changing legacy input dictionaries."""
     config = deepcopy(config)
     config["model"].setdefault("main_structure", False)
+    config["model"].setdefault("mdsa_basis", "state")
+    config["model"].setdefault("local_dilations", [1])
+    config["model"].setdefault("post_fusion_norm", False)
     if type(config["model"]["main_structure"]) is not bool:
         raise ValueError("model.main_structure must be a boolean")
+    if type(config["model"]["post_fusion_norm"]) is not bool:
+        raise ValueError("model.post_fusion_norm must be a boolean")
     return config
 
 
@@ -60,6 +66,12 @@ def validate_config(config):
         raise ValueError("Only latent P2/P4/P8 on the MAISI 48x64x64 grid are supported")
     if m["main_structure"] and (m["mdsa_mode"] not in {"conditioned", "strict"} or not m["mdsa_blocks"]):
         raise ValueError("main_structure requires mdsa_mode 'conditioned' or 'strict' and nonempty mdsa_blocks")
+    if m["mdsa_basis"] not in {"state", "condition", "joint"}:
+        raise ValueError("model.mdsa_basis must be 'state', 'condition' or 'joint'")
+    if m["mdsa_basis"] != "state" and m["mdsa_mode"] == "off":
+        raise ValueError("A condition-aware basis requires an enabled MDSA mode")
+    if not m["local_dilations"] or any(not isinstance(d, int) or d < 1 for d in m["local_dilations"]):
+        raise ValueError("model.local_dilations must be a nonempty list of positive integers")
     for name in ("epochs", "batch_size", "eval_every", "save_best_k"):
         if not isinstance(t[name], int) or t[name] < 1:
             raise ValueError(f"training.{name} must be a positive integer")
@@ -101,7 +113,9 @@ def dataset_path(config, override=None):
 def run_name(config):
     config = normalize_config(config)
     name = f"{config['task']}__ldm__latent-p{config['model']['patch_size']}__d1__mdsa-{config['model']['mdsa_mode']}__seed{config['seed']}"
-    return name + ("__main-structure" if config["model"]["main_structure"] else "")
+    name += "__main-structure" if config["model"]["main_structure"] else ""
+    basis = config["model"]["mdsa_basis"]
+    return name + ("" if basis == "state" else f"__basis-{basis}")
 
 
 def model_contract(config):

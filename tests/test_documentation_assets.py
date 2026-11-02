@@ -76,10 +76,15 @@ def test_readme_is_a_concise_single_document_workflow():
     assert "Google Drive download link will be added" in readme
 
 
-def test_only_root_readme_is_published():
+def test_published_markdown_is_limited_to_the_release_documents():
+    """The root README and changelog plus the manuscript-alignment document.
+
+    The alignment document is published deliberately: readers need to know which
+    manuscript items this repository does and does not implement.
+    """
     markdown = sorted(path.relative_to(ROOT).as_posix() for path in ROOT.rglob("*.md")
                       if not any(part.startswith(".") for part in path.relative_to(ROOT).parts))
-    assert markdown == ["README.md"]
+    assert markdown == ["CHANGELOG.md", "README.md", "docs/paper_alignment.md"]
     for name in ("data/h5/.gitkeep", "data/latents/.gitkeep", "ae_assets/maisi_v1/.gitkeep"):
         assert (ROOT / name).read_bytes().strip() == b""
 

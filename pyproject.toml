@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ldm-mri-translation"
-version = "0.1.0"
+version = "2.0.0"
 description = "Latent single-source 3D MRI translation research implementation"
 requires-python = ">=3.10"
 dynamic = ["dependencies"]

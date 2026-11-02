@@ -4,6 +4,13 @@
 
 ![Manuscript framework](assets/framework.png)
 
+> **Scope of this repository.** This code provides the generator implementation and a tested
+> training/export/evaluation pipeline for the two cross-modality translation tasks. It does
+> **not** currently reproduce the manuscript's latent-space analysis (§3.1, Table 1) or its
+> tumour inpainting results (Tables 3–4), and it ships no external baselines or split manifests.
+> Read [docs/paper_alignment.md](docs/paper_alignment.md) for the full item-by-item
+> correspondence before using these numbers or settings.
+
 ## Setup
 
 Use Python 3.10+ and CUDA-enabled PyTorch 2.5+. Run all commands from the repository root.
@@ -40,8 +47,21 @@ python -u train.py --config configs/t1n_t1c_p4.yaml --output-dir outputs/t1_p4 -
 ```
 
 Choose a T1/T2 P2/P4/P8 configuration from [configs](configs).
-Add `--main-structure` to enable the optional structural shortcut; it is off by default.
 Repeating the same command resumes training. Use a new `--output-dir` when changing settings.
+
+The `t1n_t1c_p*.yaml` and `t2w_t2f_p*.yaml` configurations keep the structural shortcut **off** and
+use `r=8` with the split in only two blocks. That is an ablation baseline, not the proposed method.
+To run the setting reported in the paper (`p=2`, `r=2`, the split in every block, the structural
+shortcut on, 80 epochs at a constant learning rate, Euler with 50 steps):
+
+```bash
+python -u train.py --config configs/paper_lsf_t1n_t1c.yaml --output-dir outputs/t1_lsf --device cuda
+```
+
+Three method details are still not implemented and a run from this file is therefore **not** a
+reproduction: the condition-side basis of Eq. (3), the `{1,2,4}` dilations in the local branch, and
+the post-fusion RMSNorm. The built model also has 50.6 M parameters against the paper's 62.9 M. See
+[docs/paper_alignment.md](docs/paper_alignment.md).
 
 ## Evaluate
 
@@ -56,6 +76,43 @@ Use the matching run directory and task for other configurations. Export restore
 from the checkpoint. Choose a new export directory when predictions already exist.
 For a dataset outside the default path, pass the same `--h5-path` to checking, precomputation,
 training, export, and evaluation.
+
+## Reproducibility
+
+| Item | Status |
+| --- | --- |
+| Translation pipeline (train / export / evaluate) | Available and tested |
+| Structural shortcut (Eq. 5) | Available (`model.main_structure`) |
+| Condition-side basis (Eq. 3) | Available (`model.mdsa_basis: state \| condition \| joint`) |
+| Local branch dilations {1, 2, 4} | Available (`model.local_dilations`) |
+| Post-fusion time-modulated RMSNorm | Available (`model.post_fusion_norm`) |
+| Parameter count | **Unresolved**: 55.8 M trainable / 68.5 M total vs 62.9 M reported |
+| `ρ_S` Gaussian reference | Resolved by `scripts/rho_s_null.py`; see the note below |
+| Latent-space analysis (§3.1, Table 1, Fig. 3) | Not implemented |
+| Tumour inpainting (Tables 3–4) | Not implemented |
+| Ablation rows (a)–(f), including the routing swap | Partially reachable; the swap is not |
+| `ρ_S` on trained models (Eq. 6) | Not implemented |
+| External baselines, paired statistics, multi-seed runs | Not provided |
+| MedicalNet ResNet-10 LPIPS | Not implemented |
+| Per-split subject ID manifests | Not published |
+
+No run in this repository has reproduced a number printed in the manuscript. Known gaps are
+tracked in [docs/paper_alignment.md](docs/paper_alignment.md) and
+[docs/main_structure_validation.json](docs/main_structure_validation.json).
+
+Two audit scripts need no data, no autoencoder and no GPU:
+
+```bash
+python scripts/param_audit.py        # account for the gap against the paper's 62.9M
+python scripts/rho_s_null.py         # null distribution of the structural fraction
+```
+
+`rho_s_null.py` shows that Eq. (6) reproduces `r/K` exactly, so Table 4's 6.25 % reference is right,
+while Table 1(B)'s 33–34 % at `r=8` is the value obtained when the basis is estimated from the error
+itself (measured: 33.62 %) rather than from the target latent (25.00 %). The two tables use different
+conventions.
+
+Tag `v1.0.0` marks the initial public release; `v2.0.0` is the current version.
 
 ## Acknowledgements
 

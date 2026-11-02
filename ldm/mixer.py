@@ -5,10 +5,13 @@ from torch.nn import functional as F
 
 
 class LDMGlobalLocalMixer(nn.Module):
-    def __init__(self, dim, num_heads=8, local_dim=64, inner_lr=1.0):
+    def __init__(self, dim, num_heads=8, local_dim=64, inner_lr=1.0, local_dilations=(1,)):
         super().__init__()
         if num_heads <= 0 or dim % num_heads or local_dim <= 0 or inner_lr < 0:
             raise ValueError("Invalid global heads, local width or inner learning rate")
+        self.local_dilations = tuple(int(d) for d in local_dilations)
+        if not self.local_dilations or any(d < 1 for d in self.local_dilations):
+            raise ValueError("local_dilations must be a nonempty tuple of positive integers")
         self.dim, self.num_heads, self.local_dim = dim, num_heads, local_dim
         self.head_dim, self.inner_lr = dim // num_heads, float(inner_lr)
         self.scale = 27 ** -0.5
@@ -30,16 +33,18 @@ class LDMGlobalLocalMixer(nn.Module):
         g2 = g2 / (g2.norm(dim=-2, keepdim=True) + 1)
         return self.w1 - self.inner_lr * g1, self.w2 - self.inner_lr * g2
 
-    def local_update(self, k, v):
+    def local_update(self, k, v, dilation=1):
         batch, channels, depth, height, width = k.shape
         error = -v / float(depth * height * width) * self.scale
-        padded = F.pad(k, (1, 1, 1, 1, 1, 1))
-        # Analytic inner gradient over the fixed 3x3x3 support, still differentiable.
+        padded = F.pad(k, (dilation,) * 6)
+        # Analytic inner gradient over the dilated 3x3x3 support, still differentiable.
         terms = []
         for z in range(3):
             for y in range(3):
                 for x in range(3):
-                    terms.append((padded[:, :, z:z+depth, y:y+height, x:x+width] * error).sum((-3, -2, -1)))
+                    zs, ys, xs = z * dilation, y * dilation, x * dilation
+                    terms.append((padded[:, :, zs:zs+depth, ys:ys+height, xs:xs+width]
+                                  * error).sum((-3, -2, -1)))
         grad = torch.stack(terms, -1).reshape(batch * channels, 1, 3, 3, 3)
         grad = grad / (torch.linalg.vector_norm(grad, dim=(-3, -2, -1), keepdim=True) + 1)
         return self.w3.repeat(batch, 1, 1, 1, 1) - self.inner_lr * grad
@@ -66,9 +71,15 @@ class LDMGlobalLocalMixer(nn.Module):
                       for v in (q2, k2, v2)]
         w1, w2 = self.global_update(k1, v1)
         global_out = ((q1 @ w1) * F.silu(q1 @ w2)).transpose(1, 2).reshape(batch, tokens, dim)
-        kernel = self.local_update(k2, v2)
-        local_out = F.conv3d(q2.reshape(1, batch * self.local_dim, depth, height, width),
-                             kernel, padding=1, groups=batch * self.local_dim)
+        # Manuscript: the depthwise kernel is applied at dilations {1, 2, 4} and averaged.
+        flat_q2 = q2.reshape(1, batch * self.local_dim, depth, height, width)
+        local_sum = None
+        for dilation in self.local_dilations:
+            kernel = self.local_update(k2, v2, dilation=dilation)
+            branch = F.conv3d(flat_q2, kernel, padding=dilation, dilation=dilation,
+                              groups=batch * self.local_dim)
+            local_sum = branch if local_sum is None else local_sum + branch
+        local_out = local_sum / len(self.local_dilations)
         local_out = local_out.reshape(batch, self.local_dim, tokens).transpose(1, 2)
         if global_gate is not None:
             global_out = global_out * global_gate.to(global_out.dtype)

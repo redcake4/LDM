@@ -9,7 +9,8 @@ from .mixer import LDMGlobalLocalMixer
 class LDMBlock3D(nn.Module):
     def __init__(self, hidden_size, global_heads, local_dim, inner_lr, mlp_ratio,
                  proj_drop, mdsa_mode, mdsa_window, mdsa_rank, mdsa_gate_hidden,
-                 main_structure=False):
+                 main_structure=False, mdsa_basis="state", local_dilations=(1,),
+                 post_fusion_norm=False):
         super().__init__()
         if type(main_structure) is not bool:
             raise ValueError("main_structure must be a boolean")
@@ -17,22 +18,33 @@ class LDMBlock3D(nn.Module):
             raise ValueError("main_structure requires conditioned or strict MDSA")
         self.main_structure = main_structure
         self.norm1 = RMSNorm(hidden_size)
-        self.mixer = LDMGlobalLocalMixer(hidden_size, global_heads, local_dim, inner_lr)
+        self.mixer = LDMGlobalLocalMixer(hidden_size, global_heads, local_dim, inner_lr,
+                                         local_dilations=local_dilations)
+        # Manuscript: the fused branch output is normalized by a time-modulated RMSNorm.
+        self.norm_fusion = RMSNorm(hidden_size) if post_fusion_norm else None
+        self.fusion_modulation = (nn.Sequential(nn.SiLU(), nn.Linear(hidden_size, 2 * hidden_size))
+                                  if post_fusion_norm else None)
         self.norm2 = RMSNorm(hidden_size)
         self.mlp = SwiGLUFFN(hidden_size, int(hidden_size * mlp_ratio), drop=proj_drop)
         self.adaLN_modulation = nn.Sequential(nn.SiLU(), nn.Linear(hidden_size, 6 * hidden_size))
         self.mdsa = None if mdsa_mode == "off" else MDSA3D(hidden_size, mode=mdsa_mode,
-            window_size=mdsa_window, rank=mdsa_rank, gate_hidden=mdsa_gate_hidden, detach_projector=True)
+            window_size=mdsa_window, rank=mdsa_rank, gate_hidden=mdsa_gate_hidden, detach_projector=True,
+            basis_source=mdsa_basis)
 
-    def forward(self, x, timestep_condition, grid_size):
+    def forward(self, x, timestep_condition, grid_size, condition=None):
         shift_mixer, scale_mixer, gate_mixer, shift_ffn, scale_ffn, gate_ffn = self.adaLN_modulation(timestep_condition).chunk(6, -1)
         features = modulate(self.norm1(x), shift_mixer, scale_mixer)
         if self.main_structure:
-            *streams, shortcut = self.mdsa(features, timestep_condition, grid_size, reference=x)
+            *streams, shortcut = self.mdsa(features, timestep_condition, grid_size,
+                                           reference=x, condition=condition)
         else:
-            streams = (None,) * 4 if self.mdsa is None else self.mdsa(features, timestep_condition, grid_size)
+            streams = (None,) * 4 if self.mdsa is None else self.mdsa(
+                features, timestep_condition, grid_size, condition=condition)
             shortcut = x
         mixed = self.mixer(features, grid_size, *streams)
+        if self.norm_fusion is not None:
+            shift_fusion, scale_fusion = self.fusion_modulation(timestep_condition).chunk(2, -1)
+            mixed = modulate(self.norm_fusion(mixed), shift_fusion, scale_fusion)
         x = shortcut + gate_mixer.unsqueeze(1) * mixed
         return x + gate_ffn.unsqueeze(1) * self.mlp(modulate(self.norm2(x), shift_ffn, scale_ffn))
 
@@ -53,12 +65,15 @@ class LDMModel3D(nn.Module):
     def __init__(self, patch_size=4, volume_size=(48, 64, 64), hidden_size=512, depth=10,
                  global_heads=8, local_dim=64, bottleneck_dim=96, mlp_ratio=4.0,
                  inner_lr=1.0, proj_drop=0.0, mdsa_mode="conditioned", mdsa_window=(2, 4, 4),
-                 mdsa_rank=8, mdsa_blocks=(4, 5), mdsa_gate_hidden=32, main_structure=False):
+                 mdsa_rank=8, mdsa_blocks=(4, 5), mdsa_gate_hidden=32, main_structure=False,
+                 mdsa_basis="state", local_dilations=(1,), post_fusion_norm=False):
         super().__init__()
         if type(main_structure) is not bool:
             raise ValueError("main_structure must be a boolean")
         if main_structure and mdsa_mode not in {"conditioned", "strict"}:
             raise ValueError("main_structure requires conditioned or strict MDSA")
+        if mdsa_basis not in MDSA3D.BASIS_SOURCES:
+            raise ValueError(f"mdsa_basis must be one of {sorted(MDSA3D.BASIS_SOURCES)}")
         if patch_size not in (2, 4, 8):
             raise ValueError("LDM supports latent patch sizes 2, 4 and 8 only")
         if hidden_size < 6 or hidden_size % 2 or depth <= 0:
@@ -74,13 +89,28 @@ class LDMModel3D(nn.Module):
         self.volume_size, self.patch_size = tuple(volume_size), patch_size
         self.hidden_size = hidden_size
         self.main_structure = main_structure
+        self.mdsa_basis = mdsa_basis
         self.x_embedder = BottleneckPatchEmbed3D(volume_size, patch_size, 8, bottleneck_dim, hidden_size)
+        # Manuscript Eq. (3) estimates the basis from the condition features of a
+        # separate patch embedding. Only built when a condition-aware basis is
+        # requested, so the default state dict is unchanged.
+        #
+        # The manuscript also states that "the basis is detached". Since these
+        # features feed nothing but the basis, no gradient can ever reach them,
+        # so the embedding is frozen explicitly rather than being reported as
+        # trainable while never changing. See docs/paper_alignment.md.
+        self.c_embedder = (None if mdsa_basis == "state" else
+                           BottleneckPatchEmbed3D(volume_size, patch_size, 4, bottleneck_dim, hidden_size))
+        if self.c_embedder is not None:
+            self.c_embedder.requires_grad_(False)
         self.t_embedder = TimestepEmbedder(hidden_size)
         self.pos_embed = nn.Parameter(torch.zeros(1, self.x_embedder.num_patches, hidden_size), requires_grad=False)
         self.blocks = nn.ModuleList([LDMBlock3D(hidden_size, global_heads, local_dim, inner_lr,
             mlp_ratio, proj_drop if depth // 4 <= i < depth // 4 * 3 else 0.0,
             mdsa_mode if i in mdsa_blocks else "off", mdsa_window, mdsa_rank, mdsa_gate_hidden,
-            main_structure=main_structure and i in mdsa_blocks) for i in range(depth)])
+            main_structure=main_structure and i in mdsa_blocks,
+            mdsa_basis=mdsa_basis, local_dilations=local_dilations,
+            post_fusion_norm=post_fusion_norm) for i in range(depth)])
         self.final_layer = LDMOutputHead(hidden_size, patch_size)
         self.initialize_weights()
 
@@ -97,6 +127,10 @@ class LDMModel3D(nn.Module):
         for block in self.blocks:
             nn.init.zeros_(block.adaLN_modulation[-1].weight)
             nn.init.zeros_(block.adaLN_modulation[-1].bias)
+            if block.fusion_modulation is not None:
+                # Zero shift and scale make the post-fusion modulation an identity at init.
+                nn.init.zeros_(block.fusion_modulation[-1].weight)
+                nn.init.zeros_(block.fusion_modulation[-1].bias)
             if block.mdsa is not None:
                 block.mdsa.reset_gates()
         nn.init.zeros_(self.final_layer.adaLN_modulation[-1].weight)
@@ -108,11 +142,15 @@ class LDMModel3D(nn.Module):
         if x.ndim != 5 or x.shape[1] != 8 or tuple(x.shape[-3:]) != self.volume_size:
             raise ValueError(f"Expected concatenated state/source [B,8,{self.volume_size}], got {tuple(x.shape)}")
         timestep_condition = self.t_embedder(t.flatten())
+        # The last four channels are the aligned image condition z_c.
+        condition = None if self.c_embedder is None else self.c_embedder(x[:, 4:])
         x = self.x_embedder(x)
         x = x + self.pos_embed.to(x.dtype)
         grid = self.x_embedder.grid_size
+        if condition is not None:
+            condition = condition + self.pos_embed.to(condition.dtype)
         for block in self.blocks:
-            x = block(x, timestep_condition, grid)
+            x = block(x, timestep_condition, grid, condition=condition)
         x = self.final_layer(x, timestep_condition)
         d, h, w = grid
         p = self.patch_size

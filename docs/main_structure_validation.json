@@ -78,5 +78,19 @@
     "reasons": ["Missing historical image provenance manifests", "Legacy README layout assertions"],
     "note": "These pre-existing documentation failures remain visible. The new validation link was checked after this report was created."
   },
-
+  "limitations": [
+    "No full-dataset convergence, comparative quality improvement or paper-result reproduction has been established.",
+    "The flag changes only the shortcut in active MDSA blocks, not the condition/feature joint Gram projector, all-block placement, rank, d124 operators or training/sampling settings.",
+    "Learned branch outputs are not constrained to remain in the input subspaces.",
+    "The existing qualitative images are not results of this new mode.",
+    "Measured CUDA allocations exceed physical VRAM on this Windows host; this is not a guarantee of fitting in 10 GiB on another system.",
+    "Compared against arXiv:2609.32794v1, the originally released configs used rank 8 in two blocks with the shortcut off, the state-only basis, dilation 1 and no post-fusion norm. The paper uses rank 2 in every block with the shortcut on, the joint state/condition basis of Eq. (3), dilations {1,2,4} and a time-modulated post-fusion RMSNorm. configs/paper_lsf_*.yaml now set all of these; the originally shipped configs are retained as ablation baselines.",
+    "The parameter count still does not match: 55.84M trainable, 68.48M including the non-trainable positional embedding, against 62.9M reported. scripts/param_audit.py shows no combination of the remaining documented differences reaches 62.9M.",
+    "Because the basis is detached, the condition patch embedding of Eq. (3) receives no gradient and is frozen explicitly; whether the paper intends it to be trained is unresolved.",
+    "The latent-space analysis of manuscript Section 3.1, Table 1 and Figure 3 is not implemented in this repository.",
+    "The tumour inpainting task behind manuscript Tables 3 and 4 is not implemented in this repository; only the two translation tasks are available.",
+    "No external baseline (for example cWDM), paired per-patient statistics, multi-seed runs or MedicalNet perceptual distance is provided.",
+    "Published split manifests listing the exact subject IDs per split are not included."
+  ],
+  "see_also": "docs/paper_alignment.md for the full manuscript-to-code correspondence table"
 }

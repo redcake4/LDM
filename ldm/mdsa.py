@@ -16,6 +16,7 @@ class MDSA3D(nn.Module):
     """Windowed low-rank structure/residual decomposition for 3D token grids."""
 
     MODES = {"gate_only", "strict", "conditioned"}
+    BASIS_SOURCES = {"state", "condition", "joint"}
 
     def __init__(
         self,
@@ -25,12 +26,22 @@ class MDSA3D(nn.Module):
         rank=8,
         gate_hidden=32,
         detach_projector=True,
+        basis_source="state",
+        trace_epsilon=1e-6,
     ):
         super().__init__()
         self.dim = int(dim)
         self.mode = str(mode).lower()
         if self.mode not in self.MODES:
             raise ValueError(f"MDSA mode must be one of {sorted(self.MODES)}, got {mode!r}.")
+        self.basis_source = str(basis_source).lower()
+        if self.basis_source not in self.BASIS_SOURCES:
+            raise ValueError(
+                f"MDSA basis_source must be one of {sorted(self.BASIS_SOURCES)}, got {basis_source!r}."
+            )
+        self.trace_epsilon = float(trace_epsilon)
+        if not self.trace_epsilon > 0:
+            raise ValueError("MDSA trace_epsilon must be positive.")
         self.window_size = _to_3tuple(window_size)
         if any(value <= 0 for value in self.window_size):
             raise ValueError("MDSA window dimensions must be positive.")
@@ -98,22 +109,51 @@ class MDSA3D(nn.Module):
         )
         return grid[:, :depth, :height, :width].reshape(batch, depth * height * width, channels)
 
-    def decompose(self, x, grid_size, reference=None):
+    def _normalized_gram(self, windows):
+        """Trace-normalized Gram matrix, Gamma(A) = A A^T / (tr(A A^T) + eta).
+
+        Trace normalization lets Gram matrices built from feature spaces of
+        different width be added without either dominating by scale
+        (manuscript Eq. (3)).
+        """
+        gram = torch.matmul(windows, windows.transpose(-2, -1))
+        trace = gram.diagonal(dim1=-2, dim2=-1).sum(-1)[..., None, None]
+        return gram / (trace + self.trace_epsilon)
+
+    def decompose(self, x, grid_size, reference=None, condition=None):
         """Split x; optionally project a reference using exactly the same basis.
 
         The optional third result is P_x @ reference, not P_reference @ reference.
         This keeps the structural shortcut in the residual stream's coordinates
         while the mixer branches use normalized/modulated features.
+
+        When basis_source is "condition" or "joint", the projector is estimated
+        from the condition features as well, following manuscript Eq. (3):
+        U_w = eig_r(Gamma(C_w) + Gamma(H_w)). The condition indicates where the
+        structure lies; the state lets the basis adapt during sampling.
         """
         if reference is not None and (reference.shape != x.shape or reference.device != x.device):
             raise ValueError("MDSA reference must match the feature shape and device")
+        if self.basis_source != "state" and condition is None:
+            raise ValueError(
+                f"MDSA basis_source {self.basis_source!r} requires condition features"
+            )
+        if condition is not None and (condition.shape != x.shape or condition.device != x.device):
+            raise ValueError("MDSA condition must match the feature shape and device")
         batch = x.shape[0]
         windows, padded_size = self._partition(x, grid_size)
         device_type = x.device.type
         with torch.autocast(device_type=device_type, enabled=False):
             work = windows.float()
             gram_input = work.detach() if self.detach_projector else work
-            gram = torch.matmul(gram_input, gram_input.transpose(-2, -1)) / float(self.dim)
+            if self.basis_source == "state":
+                gram = torch.matmul(gram_input, gram_input.transpose(-2, -1)) / float(self.dim)
+            else:
+                condition_windows, _ = self._partition(condition, grid_size)
+                condition_gram_input = condition_windows.float().detach()
+                gram = self._normalized_gram(condition_gram_input)
+                if self.basis_source == "joint":
+                    gram = gram + self._normalized_gram(gram_input)
             if self.detach_projector:
                 with torch.no_grad():
                     _, eigenvectors = torch.linalg.eigh(gram)
@@ -156,7 +196,7 @@ class MDSA3D(nn.Module):
         gates = 2.0 * torch.sigmoid(self.gate_out(F.silu(hidden)))
         return gates[..., :1], gates[..., 1:]
 
-    def forward(self, x, timestep_condition, grid_size, reference=None):
+    def forward(self, x, timestep_condition, grid_size, reference=None, condition=None):
         """Return branch inputs/gates and, if requested, a structural shortcut."""
         if self.mode == "gate_only":
             if reference is not None:
@@ -164,7 +204,7 @@ class MDSA3D(nn.Module):
             structure = x
             residual = x
         else:
-            decomposition = self.decompose(x, grid_size, reference=reference)
+            decomposition = self.decompose(x, grid_size, reference=reference, condition=condition)
             structure, residual = decomposition[:2]
 
         if self.mode == "strict":
