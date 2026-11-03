@@ -77,28 +77,7 @@ from the checkpoint. Choose a new export directory when predictions already exis
 For a dataset outside the default path, pass the same `--h5-path` to checking, precomputation,
 training, export, and evaluation.
 
-## Reproducibility
 
-| Item | Status |
-| --- | --- |
-| Translation pipeline (train / export / evaluate) | Available and tested |
-| Structural shortcut (Eq. 5) | Available (`model.main_structure`) |
-| Condition-side basis (Eq. 3) | Available (`model.mdsa_basis: state \| condition \| joint`) |
-| Local branch dilations {1, 2, 4} | Available (`model.local_dilations`) |
-| Post-fusion time-modulated RMSNorm | Available (`model.post_fusion_norm`) |
-| Parameter count | **Unresolved**: 55.8 M trainable / 68.5 M total vs 62.9 M reported |
-| `ρ_S` Gaussian reference | Resolved by `scripts/rho_s_null.py`; see the note below |
-| Latent-space analysis (§3.1, Table 1, Fig. 3) | Not implemented |
-| Tumour inpainting (Tables 3–4) | Not implemented |
-| Ablation rows (a)–(f), including the routing swap | Partially reachable; the swap is not |
-| `ρ_S` on trained models (Eq. 6) | Not implemented |
-| External baselines, paired statistics, multi-seed runs | Not provided |
-| MedicalNet ResNet-10 LPIPS | Not implemented |
-| Per-split subject ID manifests | Not published |
-
-No run in this repository has reproduced a number printed in the manuscript. Known gaps are
-tracked in [docs/paper_alignment.md](docs/paper_alignment.md) and
-[docs/main_structure_validation.json](docs/main_structure_validation.json).
 
 Two audit scripts need no data, no autoencoder and no GPU:
 
